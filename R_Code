@@ -1,0 +1,108 @@
+#     nohup R CMD BATCH Rfunctions70f.txt > output70f.txt &     
+#     ps aux | grep Rfunctions
+#     kill -9  third_number
+
+#  With n=5 or n=10, the high-kurtosis criterion seems to beat the t-test.
+
+# x <- replicate( 1e5, wilcox.test(rnorm(5))$p.value ) ; x = ifelse(x>0.07, 0, x) ;   xt5 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(10))$p.value ) ; x = ifelse(x>0.05, 0, x) ; xt10 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(15))$p.value ) ; x = ifelse(x>0.05, 0, x) ; xt15 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(20))$p.value ) ; x = ifelse(x>0.05, 0, x) ; xt20 <- max(x) + 2e-8
+
+# x <- replicate( 1e5, wilcox.test(rnorm(5), alternative="greater")$p.value ) ; x = ifelse(x>0.05, 0, x) ;   xo5 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(10), alternative="greater")$p.value ) ; x = ifelse(x>0.05, 0, x) ; xo10 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(15), alternative="greater")$p.value ) ; x = ifelse(x>0.05, 0, x) ; xo15 <- max(x) + 2e-8
+# x <- replicate( 1e5, wilcox.test(rnorm(20), alternative="greater")$p.value ) ; x = ifelse(x>0.05, 0, x) ; xo20 <- max(x) + 2e-8
+
+xt5 = 0.06250002 ;  xt10 = 0.04882815 ;  xt15 = 0.04791262 ;    xt20 = 0.04844095        # Two-sided values
+xo5 = 0.03125002 ;  xo10 = 0.04199221 ;  xo15 = 0.04730227 ;    xo20 = 0.04865362        # One-sided values
+
+prob.adj = rep(0,20) ;  prob.adj[5] = x5 ; prob.adj[10] = x10 ; prob.adj[15] = x15 ;  prob.adj[20] = x20
+
+
+######################################################################################################
+######################################################################################################
+######################################################################################################
+
+num.sim2 = 1e4   # num.sim2 should be fairly large also, at least 1e7 for the final run.
+num.sim2 = 1e7   # 14 hours
+# num.sim2 = 2e8   # 11 days
+
+old.time = Sys.time()
+library(moments) ;    library(jmuOutlier) ;   library(xtable)
+n.values = c( 5, 10, 15, 20 ) ;     prob = 0.95   # Nominal probability
+alternative0 = "greater"    # Try both "two.sided" and "greater".
+location = -0.4 #   Should be zero for coverage probabilities and nonzero for power calculations (<0 for right-sided test; maybe -0.2 or -0.4).
+
+##### Select distributions, where n is the sample size. ####
+rt5 = function(n){ rt(n,5) }            # T with  5 degrees of freedom
+rt6 = function(n){ rt(n,6) }            # T with  6 degrees of freedom
+rt7 = function(n){ rt(n,7) }            # T with  7 degrees of freedom
+rt8 = function(n){ rt(n,8) }            # T with  8 degrees of freedom
+rt9 = function(n){ rt(n,9) }            # T with  9 degrees of freedom
+rt10 = function(n){ rt(n,10) }          # T with 10 degrees of freedom
+runif1 = function(n){ runif(n,-1,1) }   # Uniform( -1, 1 )
+distribution = c( "runif1", "rnorm", "rt10", "rt9", "rt8", "rt7", "rt6", "rt5", "rlaplace" )
+
+######################################################################################################
+
+##### num.sim=3e7 from output02.txt using Rfunctions02.txt from kurtosis20.dir.
+qkurt = data.frame( cbind( n.values, c( 1.278078, 1.563894, 1.721885, 1.830854 ), c( 2.876782, 3.940937, 4.118671, 4.149351 ) ) )
+colnames(qkurt)=c("n" , "kurtosis.quantile.low" , "kurtosis.quantile.high")
+
+######################################################################################################
+
+# Part 2     FINDING COVERAGE PROBABILITIES 
+
+##### Coverage probabilities based on low, medium, or high kurtosis #####
+
+prob.adj = rep(0,20) ;  prob.adj[5] = xo5 ; prob.adj[10] = xo10 ; prob.adj[15] = xo15 ;  prob.adj[20] = xo20  # One-sided alternatives
+if (alternative0=="two.sided") {  prob.adj[5] = xt5 ; prob.adj[10] = xt10 ; prob.adj[15] = xt15 ;  prob.adj[20] = xt20 }  # Two-sided alternatives
+
+alpha = 1 - prob
+coverage.matrix = NULL 
+for ( dist0 in distribution )  {
+   for ( n in n.values )    {
+      qkurt.low =  qkurt$kurtosis.quantile.low[ qkurt$n==n ][ 1 ]                  
+      qkurt.high = qkurt$kurtosis.quantile.high[ qkurt$n==n ][ 1 ]
+      prob.alpha = prob.adj[n]
+      coverage = rep( 0, 5 )
+      for (i in 1:num.sim2)  {
+         kurtosis0 = kurtosis( samp <- match.fun(dist0)(n) )
+         t0 = t.test( samp, alternative=alternative0, mu=location )$p.value
+         w0 = wilcox.test( samp, alternative=alternative0, mu=location )$p.value
+         coverage[ 1 ] = coverage[ 1 ] + ( t0 <= prob.alpha )     # Compute coverage probability for t-test.
+         coverage[ 2 ] = coverage[ 2 ] + ( w0 <= prob.alpha )     # Compute coverage probability for Wilcoxon test.
+         coverage[ 3 ] = coverage[ 3 ] + ( ifelse( kurtosis0 < qkurt.low, w0, t0 ) <= prob.alpha )  # Compute coverage probability depending on kurtosis being low.
+         coverage[ 4 ] = coverage[ 4 ] + ( ifelse( qkurt.low < kurtosis0 & kurtosis0 > qkurt.high, t0, w0 ) <= prob.alpha ) # Compute coverage probability depending on kurtosis being low or high.
+         coverage[ 5 ] = coverage[ 5 ] + ( ifelse( kurtosis0 > qkurt.high, w0, t0 ) <= prob.alpha )  # Compute coverage probability depending on kurtosis being high.
+      }
+      prob.alpha.rounded = round( prob.alpha, digits=4 ) * 100
+      coverage = round( coverage / num.sim2, digits=4 ) * 100
+      coverage.matrix = rbind( coverage.matrix, c( dist0, n, prob.alpha.rounded, coverage ) )   }    }
+coverage.matrix <- coverage.matrix[ order( as.integer(coverage.matrix[,2]), decreasing=FALSE ), ]
+coverage.matrix <<- data.frame( coverage.matrix )   
+colnames( coverage.matrix ) = c( "distribution", "n", "alpha", "t-test", "Wilcoxon test", "low kurtosis", "low or high kurtosis", "high kurtosis" ) 
+print( qkurt <- qkurt )
+print( coverage.matrix <- coverage.matrix, width=500 )
+
+######################################################################################################
+
+# Print LaTeX tables.
+
+print( xtable(qkurt, digits=c(0,0,8,8)), include.rownames=FALSE )
+print( xtable(coverage.matrix), include.rownames=FALSE )
+
+#####################################
+
+print( c("Location parameter =", location) )
+print( c("Nominal probability =", prob) )
+print( c("Alternative =", alternative0) )
+print( c("num.sim2 =", num.sim2) )
+date()
+print( "Overall time difference." )
+print( Sys.time() - old.time )
+
+######################################################################################################
+######################################################################################################
+######################################################################################################
